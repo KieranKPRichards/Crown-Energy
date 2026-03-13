@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crown Energy Meter Reporting</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="logo">⚡ Crown Energy</a>
+            <div class="nav-links">
+                <a href="/" class="active">Dashboard</a>
+                <a href="/overview">Overview</a>
+                <a href="/bulk_upload">Bulk Upload</a>
+                <a href="/tariff_editor">Tariff Rates</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="page-header">
+            <h1>Sites Dashboard</h1>
+            <button class="btn btn-primary" onclick="document.getElementById('add-site-modal').classList.add('active')">+ Add Site</button>
+        </div>
+
+        {% if sites %}
+        <div class="sites-grid">
+            {% for site in sites %}
+            <a href="/site/{{ site.id }}" class="site-card">
+                <div class="site-card-header">
+                    <h3>{{ site.name }}</h3>
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        {% if site.is_summation %}
+                        <span class="badge badge-info">Summation</span>
+                        {% endif %}
+                        <span class="badge badge-status-{{ site_statuses[site.id] }}">{{ prev_period }}</span>
+                    </div>
+                </div>
+                <div class="site-card-body">
+                    <div class="site-meta">
+                        <span class="meta-item"><strong>Tariff:</strong> {{ site.tariff }}</span>
+                        <span class="meta-item"><strong>Authority:</strong> {{ site.supply_authority }}</span>
+                        {% if site.nmd_kva %}
+                        <span class="meta-item"><strong>NMD:</strong> {{ site.nmd_kva }} kVA</span>
+                        {% endif %}
+                        <span class="meta-item"><strong>Meters:</strong> {{ site.meters|length }}</span>
+                    </div>
+                    {% if site.reports %}
+                    <div class="site-latest">
+                        {% set latest = site.reports|sort(attribute='id')|last %}
+                        Latest: {{ latest.billing_month_name }}
+                        — <strong>R {{ "{:,.2f}".format(latest.bill.total_incl_vat) }}</strong>
+                    </div>
+                    {% endif %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">⚡</div>
+            <h2>No sites configured</h2>
+            <p>Add your first metering site to get started with energy billing reports.</p>
+            <button class="btn btn-primary" onclick="document.getElementById('add-site-modal').classList.add('active')">+ Add Your First Site</button>
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- Add Site Modal -->
+    <div id="add-site-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add New Site</h2>
+                <button class="modal-close" onclick="document.getElementById('add-site-modal').classList.remove('active')">&times;</button>
+            </div>
+            <form method="POST" action="/add_site">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Site Name *</label>
+                        <input type="text" name="name" required placeholder="e.g. City Deep">
+                    </div>
+                    <div class="form-group">
+                        <label>Plant / Sub-site</label>
+                        <input type="text" name="plant" placeholder="e.g. City Deep Plant">
+                    </div>
+                    <div class="form-group">
+                        <label>Tariff *</label>
+                        <select name="tariff" required>
+                            {% for t in tariffs %}
+                            <option value="{{ t }}">{{ t }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Supply Authority</label>
+                        <input type="text" name="supply_authority" value="Eskom" placeholder="Eskom">
+                    </div>
+                    <div class="form-group">
+                        <label>Account Number</label>
+                        <input type="text" name="account_number" placeholder="e.g. 8855237211">
+                    </div>
+                    <div class="form-group">
+                        <label>Voltage</label>
+                        <input type="text" name="voltage" placeholder="e.g. 6.6kV">
+                    </div>
+                    <div class="form-group">
+                        <label>Notified Max Demand (kVA)</label>
+                        <input type="number" name="nmd_kva" step="0.1" value="0" placeholder="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Utilised Capacity (kVA)</label>
+                        <input type="number" name="utilised_capacity_kva" step="0.1" value="0" placeholder="0">
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Meter Numbers <small>(one per line — used to auto-assign files during bulk upload)</small></label>
+                        <textarea name="meter_numbers" rows="3" placeholder="e.g.&#10;14140031&#10;14140032"></textarea>
+                    </div>
+                    <div class="form-group full-width">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="is_summation">
+                            <span>Summation site (multiple incomers — data will be combined)</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('add-site-modal').classList.remove('active')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Site</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

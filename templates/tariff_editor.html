@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tariff Editor — Crown Energy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="logo">⚡ Crown Energy</a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/tariff_editor" class="active">Tariff Rates</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="page-header">
+            <h1>Tariff Editor</h1>
+            <a href="/reset_all_tariffs" class="btn btn-danger" onclick="return confirm('Reset ALL tariffs to factory defaults?')">Reset All to Defaults</a>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ msg }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <p class="subtitle">Edit tariff rates below. Changes are saved per tariff and used in all future report calculations. Existing reports are not affected.</p>
+
+        <!-- Tariff tab navigation -->
+        <div class="tariff-tabs">
+            {% for name in tariffs %}
+            <button class="tariff-tab {% if loop.first %}active{% endif %}" onclick="showTariff('{{ name | replace(' ', '_') }}', this)">{{ name }}</button>
+            {% endfor %}
+        </div>
+
+        {% for name, tariff in tariffs.items() %}
+        <div id="tariff_{{ name | replace(' ', '_') }}" class="tariff-panel" style="{% if not loop.first %}display:none{% endif %}">
+            <form method="POST" action="/update_tariff/{{ name }}">
+                <div class="tariff-card">
+                    <div class="tariff-card-header">
+                        <h2>{{ name }}</h2>
+                        <div class="tariff-card-actions">
+                            <span class="tariff-type-badge">{{ tariff.type }}</span>
+                            <a href="/reset_tariff/{{ name }}" class="btn btn-secondary btn-sm" onclick="return confirm('Reset {{ name }} to default rates?')">Reset to Default</a>
+                            <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+                        </div>
+                    </div>
+
+                    <!-- Fixed / Daily Charges -->
+                    <div class="tariff-section">
+                        <h3>Fixed &amp; Daily Charges</h3>
+                        <div class="tariff-grid">
+                            {% if tariff.get('service_charge') is not none %}
+                            <div class="tariff-field">
+                                <label>Service Charge <span class="unit">R/day</span></label>
+                                <input type="number" name="service_charge" value="{{ tariff.service_charge }}" step="0.01">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('admin_charge') is not none %}
+                            <div class="tariff-field">
+                                <label>Admin Charge <span class="unit">R/day</span></label>
+                                <input type="number" name="admin_charge" value="{{ tariff.admin_charge }}" step="0.01">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('fixed_charge') is not none %}
+                            <div class="tariff-field">
+                                <label>Fixed Charge <span class="unit">R/month</span></label>
+                                <input type="number" name="fixed_charge" value="{{ tariff.fixed_charge }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Demand / Capacity Charges -->
+                    <div class="tariff-section">
+                        <h3>Demand &amp; Capacity Charges</h3>
+                        <div class="tariff-grid">
+                            {% if tariff.get('network_demand') is not none %}
+                            <div class="tariff-field">
+                                <label>Network Demand <span class="unit">R/kVA</span></label>
+                                <input type="number" name="network_demand" value="{{ tariff.network_demand }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('network_demand_rate') is not none %}
+                            <div class="tariff-field">
+                                <label>Network Demand <span class="unit">R/kWh</span></label>
+                                <input type="number" name="network_demand_rate" value="{{ tariff.network_demand_rate }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('transmission_network') is not none %}
+                            <div class="tariff-field">
+                                <label>Transmission Network <span class="unit">R/kVA</span></label>
+                                <input type="number" name="transmission_network" value="{{ tariff.transmission_network }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('generation_capacity') is not none %}
+                            <div class="tariff-field">
+                                <label>Generation Capacity <span class="unit">R/kVA</span></label>
+                                <input type="number" name="generation_capacity" value="{{ tariff.generation_capacity }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('network_capacity') is not none %}
+                            <div class="tariff-field">
+                                <label>Network Capacity <span class="unit">R/kVA</span></label>
+                                <input type="number" name="network_capacity" value="{{ tariff.network_capacity }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('demand_charge') is not none %}
+                            <div class="tariff-field">
+                                <label>Demand Charge <span class="unit">R/kVA</span></label>
+                                <input type="number" name="demand_charge" value="{{ tariff.demand_charge }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('network_access') is not none %}
+                            <div class="tariff-field">
+                                <label>Network Access <span class="unit">R/kVA</span></label>
+                                <input type="number" name="network_access" value="{{ tariff.network_access }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('network_demand_peak_std') is not none %}
+                            <div class="tariff-field">
+                                <label>Network Demand (Pk+Std) <span class="unit">R/kVA</span></label>
+                                <input type="number" name="network_demand_peak_std" value="{{ tariff.network_demand_peak_std }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('transmission_peak_std') is not none %}
+                            <div class="tariff-field">
+                                <label>Transmission (Pk+Std) <span class="unit">R/kVA</span></label>
+                                <input type="number" name="transmission_peak_std" value="{{ tariff.transmission_peak_std }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Ancillary / Surcharges -->
+                    {% if tariff.get('ancillary_service') is not none %}
+                    <div class="tariff-section">
+                        <h3>Ancillary &amp; Surcharges</h3>
+                        <div class="tariff-grid">
+                            <div class="tariff-field">
+                                <label>Ancillary Service <span class="unit">R/kWh</span></label>
+                                <input type="number" name="ancillary_service" value="{{ tariff.ancillary_service }}" step="0.0001">
+                            </div>
+                            {% if tariff.get('legacy_charge') is not none %}
+                            <div class="tariff-field">
+                                <label>Legacy Charge <span class="unit">R/kWh</span></label>
+                                <input type="number" name="legacy_charge" value="{{ tariff.legacy_charge }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('electrification_rural') is not none %}
+                            <div class="tariff-field">
+                                <label>Electrification & Rural <span class="unit">R/kWh</span></label>
+                                <input type="number" name="electrification_rural" value="{{ tariff.electrification_rural }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                            {% if tariff.get('affordability_subsidy') is not none %}
+                            <div class="tariff-field">
+                                <label>Affordability Subsidy <span class="unit">R/kWh</span></label>
+                                <input type="number" name="affordability_subsidy" value="{{ tariff.affordability_subsidy }}" step="0.0001">
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Energy Rates -->
+                    <div class="tariff-section">
+                        <h3>Energy Rates</h3>
+                        <div class="energy-rates-grid">
+                            <div class="season-block">
+                                <h4>Low Season <span class="season-label low">Sep – May</span></h4>
+                                <div class="tariff-grid">
+                                    <div class="tariff-field">
+                                        <label>Peak <span class="unit">R/kWh</span></label>
+                                        <input type="number" name="energy_low_peak" value="{{ tariff.energy_rates.low.peak }}" step="0.0001">
+                                    </div>
+                                    <div class="tariff-field">
+                                        <label>Standard <span class="unit">R/kWh</span></label>
+                                        <input type="number" name="energy_low_standard" value="{{ tariff.energy_rates.low.standard }}" step="0.0001">
+                                    </div>
+                                    <div class="tariff-field">
+                                        <label>Off-Peak <span class="unit">R/kWh</span></label>
+                                        <input type="number" name="energy_low_off_peak" value="{{ tariff.energy_rates.low.off_peak }}" step="0.0001">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="season-block">
+                                <h4>High Season <span class="season-label high">Jun – Aug</span></h4>
+                                <div class="tariff-grid">
+                                    <div class="tariff-field">
+                                        <label>Peak <span class="unit">R/kWh</span></label>
+                                        <input type="number" name="energy_high_peak" value="{{ tariff.energy_rates.high.peak }}" step="0.0001">
+                                    </div>
+                                    <div class="tariff-field">
+                                        <label>Standard <span class="unit">R/kWh</span></label>
+                                        <input type="number" name="energy_high_standard" value="{{ tariff.energy_rates.high.standard }}" step="0.0001">
+                                    </div>
+                                    <div class="tariff-field">
+                                        <label>Off-Peak <span class="unit">R/kWh</span></label>
+                                        <input type="number" name="energy_high_off_peak" value="{{ tariff.energy_rates.high.off_peak }}" step="0.0001">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TOU Periods (read-only reference) -->
+                    <div class="tariff-section">
+                        <h3>Time-of-Use Periods <span class="readonly-label">Reference</span></h3>
+                        <div class="tou-reference">
+                            <table class="report-table compact">
+                                <thead>
+                                    <tr><th>Day</th><th>Peak</th><th>Standard</th><th>Off-Peak</th></tr>
+                                </thead>
+                                <tbody>
+                                    {% set periods = tariff.tou_periods.low %}
+                                    <tr>
+                                        <td>Weekday</td>
+                                        <td>{% for s,e in periods.weekday.peak %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}{% if not periods.weekday.peak %}—{% endif %}</td>
+                                        <td>{% for s,e in periods.weekday.standard %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}{% if not periods.weekday.standard %}—{% endif %}</td>
+                                        <td>{% for s,e in periods.weekday.off_peak %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Saturday</td>
+                                        <td>{% for s,e in periods.saturday.peak %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}{% if not periods.saturday.peak %}—{% endif %}</td>
+                                        <td>{% for s,e in periods.saturday.standard %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}{% if not periods.saturday.standard %}—{% endif %}</td>
+                                        <td>{% for s,e in periods.saturday.off_peak %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Sunday</td>
+                                        <td>{% for s,e in periods.sunday.peak %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}{% if not periods.sunday.peak %}—{% endif %}</td>
+                                        <td>{% for s,e in periods.sunday.standard %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}{% if not periods.sunday.standard %}—{% endif %}</td>
+                                        <td>{% for s,e in periods.sunday.off_peak %}{{ s }}:00–{{ e }}:00{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="tariff-card-footer">
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                        <a href="/reset_tariff/{{ name }}" class="btn btn-secondary" onclick="return confirm('Reset {{ name }} to default rates?')">Reset to Default</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+        {% endfor %}
+    </main>
+
+    <script>
+    function showTariff(id, btn) {
+        document.querySelectorAll('.tariff-panel').forEach(p => p.style.display = 'none');
+        document.querySelectorAll('.tariff-tab').forEach(t => t.classList.remove('active'));
+        document.getElementById('tariff_' + id).style.display = 'block';
+        btn.classList.add('active');
+    }
+    </script>
+</body>
+</html>

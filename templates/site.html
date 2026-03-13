@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ site.name }} — Crown Energy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="logo">⚡ Crown Energy</a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/bulk_upload">Bulk Upload</a>
+                <a href="/tariff_editor">Tariff Rates</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="breadcrumb">
+            <a href="/">Dashboard</a> / <span>{{ site.name }}</span>
+        </div>
+
+        <div class="page-header">
+            <h1>{{ site.name }}
+                {% if site.is_summation %}
+                <span class="badge badge-info">Summation Site</span>
+                {% endif %}
+            </h1>
+            <div class="header-actions">
+                <button class="btn btn-secondary" onclick="document.getElementById('edit-site-modal').classList.add('active')">Edit Site</button>
+                <a href="/delete_site/{{ site.id }}" class="btn btn-danger" onclick="return confirm('Delete this site and all its data?')">Delete Site</a>
+            </div>
+        </div>
+
+        <!-- Site Info Card -->
+        <div class="info-card">
+            <div class="info-grid">
+                <div><strong>Tariff:</strong> {{ site.tariff }}</div>
+                <div><strong>Supply Authority:</strong> {{ site.supply_authority }}</div>
+                <div><strong>Account:</strong> {{ site.account_number or '—' }}</div>
+                <div><strong>Voltage:</strong> {{ site.voltage or '—' }}</div>
+                <div><strong>NMD:</strong> {{ site.nmd_kva }} kVA</div>
+                <div><strong>Utilised Capacity:</strong> {{ site.utilised_capacity_kva }} kVA</div>
+            </div>
+        </div>
+
+        <!-- Meters Section -->
+        <section class="section">
+            <div class="section-header">
+                <h2>Meters & Data Files</h2>
+                <button class="btn btn-primary btn-sm" onclick="document.getElementById('upload-modal').classList.add('active')">+ Add Meter Data</button>
+            </div>
+
+            {% if site.meters %}
+            <div class="meters-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Meter Number</th>
+                            <th>Label</th>
+                            <th>Data Available</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for meter in site.meters %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td><code>{{ meter.meter_number or '—' }}</code></td>
+                            <td><strong>{{ meter.label }}</strong></td>
+                            <td>
+                                {% set fp = meter.file_periods or {} %}
+                                {% for period in fp.keys()|sort %}
+                                    {% set pf = fp[period] %}
+                                    {% if pf.billing_file or pf.profile_file %}
+                                    <span class="period-chip" title="{{ 'BR: ' ~ (pf.billing_file or '—') ~ ' | PR: ' ~ (pf.profile_file or '—') }}">
+                                        {{ period }}
+                                        {% if pf.billing_file and pf.profile_file %}<span class="period-dot dot-both"></span>
+                                        {% elif pf.billing_file %}<span class="period-dot dot-br"></span>
+                                        {% else %}<span class="period-dot dot-pr"></span>{% endif %}
+                                    </span>
+                                    {% endif %}
+                                {% else %}
+                                    {% if meter.billing_file or meter.profile_file %}
+                                    <span class="period-chip period-chip-legacy" title="{{ 'BR: ' ~ (meter.billing_file or '—') ~ ' | PR: ' ~ (meter.profile_file or '—') }}">legacy files</span>
+                                    {% else %}
+                                    <span class="text-muted">No files</span>
+                                    {% endif %}
+                                {% endfor %}
+                            </td>
+                            <td>
+                                <a href="/remove_meter/{{ site.id }}/{{ loop.index0 }}" class="btn btn-danger btn-xs" onclick="return confirm('Remove this meter?')">Remove</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state-sm">
+                <p>No meters configured. Edit the site to add meter numbers, or add meter data manually.</p>
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- Generate Report Section -->
+        {% if site.meters %}
+        <section class="section">
+            <div class="section-header">
+                <h2>Generate Report</h2>
+            </div>
+            <div class="generate-report-card">
+                <form method="POST" action="/generate_report/{{ site.id }}" class="inline-form" id="report-form">
+                    <div class="form-group">
+                        <label>Billing Month</label>
+                        <select name="billing_month" id="billing_month" onchange="fetchPreview()">
+                            {% for m in range(1, 13) %}
+                            <option value="{{ m }}">{{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Year</label>
+                        <input type="number" name="billing_year" id="billing_year" value="2026" min="2020" max="2030" onchange="fetchPreview()" oninput="fetchPreview()">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Generate Report</button>
+                </form>
+                <div id="files-preview" class="files-preview"></div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Past Reports -->
+        {% if site.reports %}
+        <section class="section">
+            <div class="section-header">
+                <h2>Reports History</h2>
+            </div>
+            <div class="reports-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Period</th>
+                            <th>Total kWh</th>
+                            <th>Max Demand kVA</th>
+                            <th>Power Factor</th>
+                            <th>Total (incl. VAT)</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for report in site.reports|reverse %}
+                        {% set idx = site.reports|length - loop.index %}
+                        <tr>
+                            <td><strong>{{ report.billing_month_name }}</strong></td>
+                            <td>{{ "{:,.0f}".format(report.energy.total) }}</td>
+                            <td>{{ "{:,.1f}".format(report.energy.max_demand_kva) }}</td>
+                            <td>{{ "{:.4f}".format(report.energy.power_factor) }}</td>
+                            <td class="amount"><strong>R {{ "{:,.2f}".format(report.bill.total_incl_vat) }}</strong></td>
+                            <td>
+                                <a href="/report/{{ site.id }}/{{ idx }}" class="btn btn-secondary btn-xs">View</a>
+                                <a href="/export_report/{{ site.id }}/{{ idx }}" class="btn btn-secondary btn-xs">CSV</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
+    </main>
+
+    <!-- Upload Modal -->
+    <div id="upload-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Upload Meter Data</h2>
+                <button class="modal-close" onclick="document.getElementById('upload-modal').classList.remove('active')">&times;</button>
+            </div>
+            <form method="POST" action="/upload/{{ site.id }}" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Meter Label / Number</label>
+                    <input type="text" name="meter_label" required placeholder="e.g. 14140031">
+                </div>
+                <div class="form-group">
+                    <label>Billing File (BR*.xls)</label>
+                    <input type="file" name="billing_file" accept=".xls,.xlsx">
+                    <small>Enermax billing data export</small>
+                </div>
+                <div class="form-group">
+                    <label>Profile File (PR*.csv)</label>
+                    <input type="file" name="profile_file" accept=".csv">
+                    <small>Enermax 30-minute profile data export</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('upload-modal').classList.remove('active')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const SITE_ID = "{{ site.id }}";
+        function fetchPreview() {
+            const year = document.getElementById('billing_year').value;
+            const month = document.getElementById('billing_month').value;
+            const div = document.getElementById('files-preview');
+            if (!year || !month) return;
+            div.innerHTML = '<p class="preview-loading">Loading file preview...</p>';
+            fetch(`/report_preview/${SITE_ID}?year=${year}&month=${month}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.meters || !data.meters.length) {
+                        div.innerHTML = '<p class="text-muted">No meters configured.</p>';
+                        return;
+                    }
+                    let allOk = data.meters.every(m => m.billing_ok || m.profile_ok);
+                    let html = `<div class="preview-header">Files that will be used for <strong>${data.period}</strong></div>`;
+                    html += '<table class="preview-table"><thead><tr><th>Meter</th><th>Billing File (BR)</th><th>Profile File (PR)</th><th>Match</th></tr></thead><tbody>';
+                    data.meters.forEach(m => {
+                        const bfCell = m.billing_file
+                            ? `<span class="${m.billing_ok ? 'pf-ok' : 'pf-missing'}">${m.billing_file}</span>`
+                            : '<span class="pf-none">—</span>';
+                        const pfCell = m.profile_file
+                            ? `<span class="${m.profile_ok ? 'pf-ok' : 'pf-missing'}">${m.profile_file}</span>`
+                            : '<span class="pf-none">—</span>';
+                        const matchBadge = m.match === 'period'
+                            ? '<span class="badge badge-success">Period match</span>'
+                            : '<span class="badge badge-warning">Fallback</span>';
+                        html += `<tr><td><code>${m.meter}</code></td><td>${bfCell}</td><td>${pfCell}</td><td>${matchBadge}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                    div.innerHTML = html;
+                })
+                .catch(() => { div.innerHTML = '<p class="text-muted">Could not load preview.</p>'; });
+        }
+        document.addEventListener('DOMContentLoaded', fetchPreview);
+    </script>
+
+    <!-- Edit Site Modal -->
+    <div id="edit-site-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Site</h2>
+                <button class="modal-close" onclick="document.getElementById('edit-site-modal').classList.remove('active')">&times;</button>
+            </div>
+            <form method="POST" action="/update_site/{{ site.id }}">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Site Name</label>
+                        <input type="text" name="name" value="{{ site.name }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Plant</label>
+                        <input type="text" name="plant" value="{{ site.plant or '' }}">
+                    </div>
+                    <div class="form-group">
+                        <label>Tariff</label>
+                        <select name="tariff">
+                            {% for t in tariffs %}
+                            <option value="{{ t }}" {% if t == site.tariff %}selected{% endif %}>{{ t }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Supply Authority</label>
+                        <input type="text" name="supply_authority" value="{{ site.supply_authority or '' }}">
+                    </div>
+                    <div class="form-group">
+                        <label>Account Number</label>
+                        <input type="text" name="account_number" value="{{ site.account_number or '' }}">
+                    </div>
+                    <div class="form-group">
+                        <label>Voltage</label>
+                        <input type="text" name="voltage" value="{{ site.voltage or '' }}">
+                    </div>
+                    <div class="form-group">
+                        <label>NMD (kVA)</label>
+                        <input type="number" name="nmd_kva" step="0.1" value="{{ site.nmd_kva }}">
+                    </div>
+                    <div class="form-group">
+                        <label>Utilised Capacity (kVA)</label>
+                        <input type="number" name="utilised_capacity_kva" step="0.1" value="{{ site.utilised_capacity_kva }}">
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Meter Numbers <small>(one per line — files are preserved for existing numbers)</small></label>
+                        <textarea name="meter_numbers" rows="3" placeholder="e.g.&#10;14140031&#10;14140032">{% for m in site.meters %}{{ m.meter_number or m.label }}
+{% endfor %}</textarea>
+                    </div>
+                    <div class="form-group full-width">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="is_summation" {% if site.is_summation %}checked{% endif %}>
+                            <span>Summation site</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('edit-site-modal').classList.remove('active')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

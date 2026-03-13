@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Upload — Crown Energy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="logo">⚡ Crown Energy</a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/bulk_upload" class="active">Bulk Upload</a>
+                <a href="/tariff_editor">Tariff Rates</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="page-header">
+            <h1>Bulk Upload</h1>
+        </div>
+
+        <div class="info-card" style="margin-bottom: 1.5rem;">
+            <p>Upload all billing (BR) and profile (PR) files for the month in one go. The app will read each file's meter serial number and automatically assign it to the correct site.</p>
+            <p style="margin-top: 0.5rem; color: var(--text-muted);">Make sure each site has its meter numbers configured before uploading. Files that don't match any known meter serial will be listed as unmatched.</p>
+        </div>
+
+        <section class="section">
+            <form method="POST" action="/bulk_upload" enctype="multipart/form-data">
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-zone-inner">
+                        <div class="drop-icon">&#8593;</div>
+                        <p class="drop-label">Drop BR and PR files here, or click to select</p>
+                        <p class="drop-hint">Accepts .xls, .xlsx (billing) and .csv (profile) files</p>
+                        <input type="file" name="files" id="file-input" multiple accept=".xls,.xlsx,.csv" style="display:none">
+                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Choose Files</button>
+                    </div>
+                    <div id="file-list" class="file-list" style="display:none"></div>
+                </div>
+                <div class="form-actions" style="margin-top: 1rem;">
+                    <button type="submit" class="btn btn-primary" id="upload-btn" disabled>Upload &amp; Assign Files</button>
+                </div>
+            </form>
+        </section>
+
+        {% if results is not none %}
+        <section class="section">
+            <div class="section-header">
+                <h2>Assignment Results</h2>
+            </div>
+            <div class="meters-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Meter Serial</th>
+                            <th>Period</th>
+                            <th>Type</th>
+                            <th>Site</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in results %}
+                        <tr>
+                            <td><code>{{ r.file }}</code></td>
+                            <td><code>{{ r.serial }}</code></td>
+                            <td><code>{{ r.period }}</code></td>
+                            <td>{{ r.type }}</td>
+                            <td>{{ r.site }}</td>
+                            <td>
+                                {% if r.status == 'assigned' %}
+                                <span class="badge badge-success">Assigned</span>
+                                {% else %}
+                                <span class="badge badge-warning">Unmatched</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if results %}
+            <div style="margin-top: 1rem;">
+                <a href="/" class="btn btn-secondary">Back to Dashboard</a>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+    </main>
+
+    <script>
+        const input = document.getElementById('file-input');
+        const dropZone = document.getElementById('drop-zone');
+        const fileList = document.getElementById('file-list');
+        const uploadBtn = document.getElementById('upload-btn');
+
+        function updateFileList(files) {
+            if (!files.length) { fileList.style.display = 'none'; uploadBtn.disabled = true; return; }
+            fileList.style.display = 'block';
+            fileList.innerHTML = Array.from(files).map(f =>
+                `<div class="file-list-item"><span class="file-name">${f.name}</span><span class="file-size">${(f.size/1024).toFixed(0)} KB</span></div>`
+            ).join('');
+            uploadBtn.disabled = false;
+        }
+
+        input.addEventListener('change', () => updateFileList(input.files));
+
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault(); dropZone.classList.remove('drag-over');
+            const dt = new DataTransfer();
+            Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
+            input.files = dt.files;
+            updateFileList(input.files);
+        });
+    </script>
+</body>
+</html>

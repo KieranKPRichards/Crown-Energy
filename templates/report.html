@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report — {{ site.name }} — {{ report.billing_month_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="logo">⚡ Crown Energy</a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/bulk_upload">Bulk Upload</a>
+                <a href="/tariff_editor">Tariff Rates</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="/">Dashboard</a> / <a href="/site/{{ site.id }}">{{ site.name }}</a> / <span>{{ report.billing_month_name }}</span>
+        </div>
+
+        <div class="page-header">
+            <h1>{{ report.billing_month_name }} Report</h1>
+            <div class="header-actions">
+                <a href="/export_report/{{ site.id }}/{{ report_idx }}" class="btn btn-secondary">Export CSV</a>
+                <button class="btn btn-secondary" onclick="window.print()">Print</button>
+                <a href="/site/{{ site.id }}" class="btn btn-secondary">Back to Site</a>
+            </div>
+        </div>
+
+        <!-- Report Header Info -->
+        <div class="report-header-card">
+            <div class="report-header-grid">
+                <div>
+                    <div class="report-label">Site</div>
+                    <div class="report-value">{{ site.name }}</div>
+                </div>
+                <div>
+                    <div class="report-label">Billing Period</div>
+                    <div class="report-value">{{ report.billing_month_name }}</div>
+                </div>
+                <div>
+                    <div class="report-label">Tariff</div>
+                    <div class="report-value">{{ report.tariff }}</div>
+                </div>
+                <div>
+                    <div class="report-label">Season</div>
+                    <div class="report-value season-{{ report.season }}">{{ report.season|upper }} Season</div>
+                </div>
+                <div>
+                    <div class="report-label">Days</div>
+                    <div class="report-value">{{ report.days }}</div>
+                </div>
+                <div>
+                    <div class="report-label">Supply</div>
+                    <div class="report-value">{{ site.supply_authority }}</div>
+                </div>
+                {% if report.is_summation %}
+                <div>
+                    <div class="report-label">Meters Combined</div>
+                    <div class="report-value">{{ report.num_meters }}</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="report-columns">
+            <!-- Energy Consumption -->
+            <div class="report-section">
+                <h2>Energy Consumption</h2>
+                <table class="report-table">
+                    <tbody>
+                        <tr>
+                            <td>Peak Energy</td>
+                            <td class="num">{{ "{:,.1f}".format(report.energy.peak) }}</td>
+                            <td>kWh</td>
+                        </tr>
+                        <tr>
+                            <td>Standard Energy</td>
+                            <td class="num">{{ "{:,.1f}".format(report.energy.standard) }}</td>
+                            <td>kWh</td>
+                        </tr>
+                        <tr>
+                            <td>Off-Peak Energy</td>
+                            <td class="num">{{ "{:,.1f}".format(report.energy.off_peak) }}</td>
+                            <td>kWh</td>
+                        </tr>
+                        <tr class="total-row">
+                            <td><strong>Total Active Energy</strong></td>
+                            <td class="num"><strong>{{ "{:,.1f}".format(report.energy.total) }}</strong></td>
+                            <td>kWh</td>
+                        </tr>
+                        <tr>
+                            <td>Reactive Energy</td>
+                            <td class="num">{{ "{:,.1f}".format(report.energy.reactive) }}</td>
+                            <td>kvarh</td>
+                        </tr>
+                        <tr>
+                            <td>Maximum Demand</td>
+                            <td class="num">{{ "{:,.2f}".format(report.energy.max_demand_kva) }}</td>
+                            <td>kVA</td>
+                        </tr>
+                        <tr>
+                            <td>Average Power Factor</td>
+                            <td class="num">{{ "{:.4f}".format(report.energy.power_factor) }}</td>
+                            <td></td>
+                        </tr>
+                        {% if report.nmd_kva %}
+                        <tr>
+                            <td>Notified Maximum Demand</td>
+                            <td class="num">{{ "{:,.0f}".format(report.nmd_kva) }}</td>
+                            <td>kVA</td>
+                        </tr>
+                        {% endif %}
+                        {% if report.utilised_capacity_kva %}
+                        <tr>
+                            <td>Utilised Capacity</td>
+                            <td class="num">{{ "{:,.1f}".format(report.utilised_capacity_kva) }}</td>
+                            <td>kVA</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Bill Breakdown -->
+            <div class="report-section">
+                <h2>Bill Breakdown</h2>
+                <table class="report-table bill-table">
+                    <thead>
+                        <tr>
+                            <th>Charge</th>
+                            <th class="num">Amount (R)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for key, val in report.bill.items() %}
+                        {% if key not in ['subtotal_excl_vat', 'vat', 'total_incl_vat', 'total_energy'] %}
+                        <tr>
+                            <td>{{ key.replace('_', ' ').title() }}</td>
+                            <td class="num">{{ "{:,.2f}".format(val) }}</td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+
+                        <tr class="subtotal-row">
+                            <td><strong>Total Excl. VAT</strong></td>
+                            <td class="num"><strong>R {{ "{:,.2f}".format(report.bill.subtotal_excl_vat) }}</strong></td>
+                        </tr>
+                        <tr>
+                            <td>VAT (15%)</td>
+                            <td class="num">R {{ "{:,.2f}".format(report.bill.vat) }}</td>
+                        </tr>
+                        <tr class="total-row grand-total">
+                            <td><strong>TOTAL INCL. VAT</strong></td>
+                            <td class="num"><strong>R {{ "{:,.2f}".format(report.bill.total_incl_vat) }}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Energy Mix Visual -->
+        <div class="report-section">
+            <h2>Energy Distribution</h2>
+            <div class="energy-bars">
+                {% set total = report.energy.total if report.energy.total > 0 else 1 %}
+                <div class="energy-bar-row">
+                    <span class="bar-label">Peak</span>
+                    <div class="bar-track">
+                        <div class="bar-fill bar-peak" style="width: {{ (report.energy.peak / total * 100)|round(1) }}%"></div>
+                    </div>
+                    <span class="bar-value">{{ "{:,.0f}".format(report.energy.peak) }} kWh ({{ (report.energy.peak / total * 100)|round(1) }}%)</span>
+                </div>
+                <div class="energy-bar-row">
+                    <span class="bar-label">Standard</span>
+                    <div class="bar-track">
+                        <div class="bar-fill bar-std" style="width: {{ (report.energy.standard / total * 100)|round(1) }}%"></div>
+                    </div>
+                    <span class="bar-value">{{ "{:,.0f}".format(report.energy.standard) }} kWh ({{ (report.energy.standard / total * 100)|round(1) }}%)</span>
+                </div>
+                <div class="energy-bar-row">
+                    <span class="bar-label">Off-Peak</span>
+                    <div class="bar-track">
+                        <div class="bar-fill bar-offpeak" style="width: {{ (report.energy.off_peak / total * 100)|round(1) }}%"></div>
+                    </div>
+                    <span class="bar-value">{{ "{:,.0f}".format(report.energy.off_peak) }} kWh ({{ (report.energy.off_peak / total * 100)|round(1) }}%)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Sources -->
+        {% if report.files_used %}
+        <div class="report-section">
+            <h2>Data Sources</h2>
+            <div class="meters-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Meter</th>
+                            <th>Billing File (BR)</th>
+                            <th>Profile File (PR)</th>
+                            <th>Match</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fu in report.files_used %}
+                        <tr>
+                            <td><code>{{ fu.meter }}</code></td>
+                            <td>{{ fu.billing_file or '—' }}</td>
+                            <td>{{ fu.profile_file or '—' }}</td>
+                            <td>
+                                {% if fu.match == 'period' %}
+                                <span class="badge badge-success">Period match</span>
+                                {% else %}
+                                <span class="badge badge-warning">Fallback</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="report-footer">
+            <p>Generated: {{ report.generated[:19] }}</p>
+        </div>
+    </main>
+</body>
+</html>
