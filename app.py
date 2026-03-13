@@ -407,7 +407,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import UniqueConstraint
 
 app = Flask(__name__)
-app.secret_key = 'crown-energy-2026'
+app.secret_key = os.environ.get('SECRET_KEY', 'crown-energy-dev-key')
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', f'sqlite:///{DATA_DIR}/energy.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -575,6 +575,15 @@ def migrate_from_json():
 with app.app_context():
     db.create_all()
     migrate_from_json()
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok'}), 200
 
 
 # ---------------------------------------------------------------------------
