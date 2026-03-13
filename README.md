@@ -1,6 +1,6 @@
 # Crown Energy Meter Reporting Application
 
-A desktop application for processing Enermax energy meter data and generating monthly electricity cost reports based on South African tariff structures.
+A web application for processing Enermax energy meter data and generating monthly electricity cost reports based on South African tariff structures.
 
 ## Features
 
@@ -9,18 +9,36 @@ A desktop application for processing Enermax energy meter data and generating mo
 - **Tariff support** – Megaflex, Miniflex, Nightsave Urban, Tariff D, Tariff E
 - **TOU classification** – Automatically classifies 30-minute readings into Peak, Standard, and Off-Peak periods
 - **Bill calculation** – Computes full bill breakdown including service charges, demand charges, energy charges, reactive energy, ancillary charges, VAT
-- **Report export** – Export reports as CSV; print-friendly report view
-- **Cross-platform** – Runs on Mac, Windows, and Linux
+- **Multi-format export** – Export reports as CSV, Excel (.xlsx), or PDF
+- **Batch report generation** – Generate reports for all sites in a single click
+- **Cost trend charts** – Month-over-month sparklines on the dashboard and detailed cost/demand trend charts on each report
+- **Data overview** – At-a-glance status matrix showing data completeness across all sites and months
+- **Missing data alerts** – Dashboard notifications for sites with incomplete data for the current period
+- **Report notes** – Add comments and annotations to reports (e.g. load shedding, meter issues)
+- **Bulk upload** – Drag-and-drop multiple BR/PR files; auto-assigns to sites by meter serial number
+- **Tariff editor** – Update tariff rates from the UI without editing code
+- **Docker support** – Docker Compose setup with persistent storage and health checks
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker (recommended)
+
+```bash
+cp .env.example .env    # edit SECRET_KEY
+docker compose up --build
+```
+
+Open **http://localhost:5000**
+
+### Option 2: Local Python
+
+#### Prerequisites
 
 - **Python 3.9+** (download from [python.org](https://www.python.org/downloads/))
   - On Mac: `brew install python3`
   - On Windows: Download installer from python.org (check "Add to PATH" during install)
 
-### Installation
+#### Installation
 
 1. **Download/extract** this folder to your desired location
 
@@ -78,15 +96,30 @@ If you need to process `.xls` billing files (older Enermax format), install [Lib
 
 For summation sites, add each meter separately. The app will automatically match date/time rows and sum the values.
 
-### Generating a Report
+**Bulk upload:** Use the Bulk Upload page to drag-and-drop all BR and PR files at once. Files are automatically matched to sites by meter serial number.
 
+### Generating Reports
+
+**Single site:**
 1. On the site detail page, select the billing month and year
 2. Click **"Generate Report"**
-3. View the full report with:
-   - Energy consumption breakdown (Peak/Standard/Off-Peak)
-   - Maximum demand and power factor
-   - Full bill breakdown with all charge components
-   - Energy distribution visualization
+
+**All sites at once:**
+1. Click **"Batch Generate"** on the dashboard
+2. Select the billing month and year
+3. Reports are generated for every site that has data for that period
+
+### Report Features
+
+Each report includes:
+- Energy consumption breakdown (Peak/Standard/Off-Peak)
+- Maximum demand and power factor
+- Full bill breakdown with all charge components
+- Energy distribution visualization
+- Cost trend chart comparing to previous months
+- Notes section for annotations
+
+**Export options:** CSV, Excel (.xlsx), and PDF download buttons are available on each report.
 
 ### Data File Formats
 
@@ -111,7 +144,7 @@ Date,Time,Wh  Tot_Imp__:Sum   30m,varhTot_Q1:Sum   30m
 
 ## Updating Tariff Rates
 
-Tariff rates are defined in `app.py` in the `TARIFFS` dictionary near the top of the file. Each tariff year (typically April to March), update the rates from the latest Eskom/municipality gazettes.
+Tariff rates can be updated from the **Tariff Rates** page in the app. Each tariff year (typically April to March), update the rates from the latest Eskom/municipality gazettes.
 
 The key values to update for each tariff:
 - Service and administration charges (R/day)
@@ -121,9 +154,11 @@ The key values to update for each tariff:
 
 ## Data Storage
 
-All data is stored locally in the `data/` folder within the application directory:
-- `data/sites.json` – Site configuration
+Data is stored in a SQLite database with uploaded files on disk:
+- `data/energy.db` – SQLite database (sites, meters, reports)
 - `data/{site_id}/` – Uploaded meter files per site
+
+When running with Docker, the `data/` directory is persisted via a named volume.
 
 ## Troubleshooting
 

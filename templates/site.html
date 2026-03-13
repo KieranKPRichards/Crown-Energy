@@ -162,7 +162,6 @@
                     </thead>
                     <tbody>
                         {% for report in site.reports|reverse %}
-                        {% set idx = site.reports|length - loop.index %}
                         <tr>
                             <td><strong>{{ report.billing_month_name }}</strong></td>
                             <td>{{ "{:,.0f}".format(report.energy.total) }}</td>
@@ -170,8 +169,10 @@
                             <td>{{ "{:.4f}".format(report.energy.power_factor) }}</td>
                             <td class="amount"><strong>R {{ "{:,.2f}".format(report.bill.total_incl_vat) }}</strong></td>
                             <td>
-                                <a href="/report/{{ site.id }}/{{ idx }}" class="btn btn-secondary btn-xs">View</a>
-                                <a href="/export_report/{{ site.id }}/{{ idx }}" class="btn btn-secondary btn-xs">CSV</a>
+                                <a href="/report/{{ site.id }}/{{ report.id }}" class="btn btn-secondary btn-xs">View</a>
+                                <a href="/export_report/{{ site.id }}/{{ report.id }}" class="btn btn-secondary btn-xs">CSV</a>
+                                <a href="/export_report_xlsx/{{ site.id }}/{{ report.id }}" class="btn btn-secondary btn-xs">XLSX</a>
+                                <a href="/export_report_pdf/{{ site.id }}/{{ report.id }}" class="btn btn-secondary btn-xs">PDF</a>
                             </td>
                         </tr>
                         {% endfor %}

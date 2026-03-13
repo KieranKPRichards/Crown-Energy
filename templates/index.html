@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crown Energy Meter Reporting</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <nav class="topbar">
@@ -28,9 +29,53 @@
         {% endif %}
         {% endwith %}
 
+        {% if missing_sites %}
+        <div class="alert alert-warning">
+            <strong>Missing data for {{ prev_period }}:</strong>
+            {% for ms in missing_sites %}
+            <a href="/site/{{ ms.id }}" style="color:inherit;text-decoration:underline;">{{ ms.name }}</a> ({{ ms.status }}){% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if batch_results %}
+        <div class="info-card" style="margin-bottom:24px;">
+            <h3 style="margin-bottom:12px;">Batch Generation Results — {{ batch_period }}</h3>
+            <div class="meters-table">
+                <table>
+                    <thead><tr><th>Site</th><th>Status</th><th>Details</th></tr></thead>
+                    <tbody>
+                        {% for r in batch_results %}
+                        <tr>
+                            <td><strong>{{ r.site_name }}</strong></td>
+                            <td>
+                                {% if r.success %}
+                                <span class="badge badge-success">Generated</span>
+                                {% else %}
+                                <span class="badge badge-warning">Skipped</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if r.success %}
+                                <a href="/report/{{ r.site_id }}/{{ r.report_id }}" class="btn btn-secondary btn-xs">View Report</a>
+                                {% else %}
+                                {{ r.error }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="page-header">
             <h1>Sites Dashboard</h1>
-            <button class="btn btn-primary" onclick="document.getElementById('add-site-modal').classList.add('active')">+ Add Site</button>
+            <div class="header-actions">
+                <button class="btn btn-secondary" onclick="document.getElementById('batch-modal').classList.add('active')">Batch Generate</button>
+                <button class="btn btn-primary" onclick="document.getElementById('add-site-modal').classList.add('active')">+ Add Site</button>
+            </div>
         </div>
 
         {% if sites %}
@@ -62,6 +107,11 @@
                         — <strong>R {{ "{:,.2f}".format(latest.bill.total_incl_vat) }}</strong>
                     </div>
                     {% endif %}
+                    {% if site_trends[site.id] and site_trends[site.id]|length > 1 %}
+                    <div class="sparkline-container">
+                        <canvas id="spark-{{ site.id }}" height="40"></canvas>
+                    </div>
+                    {% endif %}
                 </div>
             </a>
             {% endfor %}
@@ -75,6 +125,37 @@
         </div>
         {% endif %}
     </main>
+
+    <!-- Batch Generate Modal -->
+    <div id="batch-modal" class="modal">
+        <div class="modal-content" style="max-width:420px;">
+            <div class="modal-header">
+                <h2>Batch Generate Reports</h2>
+                <button class="modal-close" onclick="document.getElementById('batch-modal').classList.remove('active')">&times;</button>
+            </div>
+            <p style="color:var(--text-muted);margin-bottom:16px;">Generate reports for all sites that have data for the selected month.</p>
+            <form method="POST" action="/batch_generate">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Month</label>
+                        <select name="billing_month">
+                            {% for m in range(1, 13) %}
+                            <option value="{{ m }}">{{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Year</label>
+                        <input type="number" name="billing_year" value="2026" min="2020" max="2030">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('batch-modal').classList.remove('active')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Generate All</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Add Site Modal -->
     <div id="add-site-modal" class="modal">
@@ -139,5 +220,47 @@
             </form>
         </div>
     </div>
+
+    <script>
+    const TRENDS = {{ site_trends | tojson }};
+    Object.keys(TRENDS).forEach(siteId => {
+        const data = TRENDS[siteId];
+        if (!data || data.length < 2) return;
+        const canvas = document.getElementById('spark-' + siteId);
+        if (!canvas) return;
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: data.map(d => d.period),
+                datasets: [{
+                    data: data.map(d => d.cost),
+                    borderColor: '#f0a030',
+                    backgroundColor: 'rgba(240,160,48,0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHitRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => 'R ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})
+                        }
+                    }
+                },
+                scales: {
+                    x: { display: false },
+                    y: { display: false }
+                }
+            }
+        });
+    });
+    </script>
 </body>
 </html>

@@ -481,6 +481,7 @@ class Report(db.Model):
     energy_json = db.Column(db.Text)
     bill_json = db.Column(db.Text)
     files_used_json = db.Column(db.Text)
+    notes = db.Column(db.Text, default='')
     site = db.relationship('Site', back_populates='reports')
 
     @property
@@ -572,9 +573,19 @@ def migrate_from_json():
 
 
 # Initialise DB tables and run migration
+def ensure_schema_updates():
+    """Add columns that db.create_all() won't add to existing tables."""
+    with db.engine.connect() as conn:
+        result = conn.execute(db.text("PRAGMA table_info(reports)"))
+        columns = [row[1] for row in result]
+        if 'notes' not in columns:
+            conn.execute(db.text("ALTER TABLE reports ADD COLUMN notes TEXT DEFAULT ''"))
+            conn.commit()
+
 with app.app_context():
     db.create_all()
     migrate_from_json()
+    ensure_schema_updates()
 
 
 # ---------------------------------------------------------------------------
@@ -626,8 +637,17 @@ def index():
     sites = Site.query.all()
     pp = prev_month_period()
     statuses = {s.id: get_period_status(s, pp) for s in sites}
+    missing_sites = [{'name': s.name, 'id': s.id, 'status': statuses[s.id]}
+                     for s in sites if statuses[s.id] in ('empty', 'partial')]
+    site_trends = {}
+    for s in sites:
+        reports = Report.query.filter_by(site_id=s.id).order_by(Report.billing_period.desc()).limit(12).all()
+        site_trends[s.id] = [{'period': r.billing_period, 'cost': r.bill.get('total_incl_vat', 0)}
+                             for r in reversed(reports)]
     return render_template('index.html', sites=sites, tariffs=list(TARIFFS.keys()),
-                           prev_period=pp, site_statuses=statuses)
+                           prev_period=pp, site_statuses=statuses,
+                           missing_sites=missing_sites, site_trends=site_trends,
+                           batch_results=None)
 
 
 @app.route('/add_site', methods=['POST'])
@@ -720,13 +740,10 @@ def remove_meter(sid, meter_id):
     return redirect(url_for('site_detail', sid=sid))
 
 
-@app.route('/generate_report/<sid>', methods=['POST'])
-def generate_report(sid):
-    site = db.get_or_404(Site, sid)
-    by = int(request.form['billing_year'])
-    bm = int(request.form['billing_month'])
+def generate_report_for_site(site, by, bm):
+    """Generate a report for a site. Returns (report, None) on success or (None, error_msg) on failure."""
     period_key = f"{by}-{bm:02d}"
-    d = DATA_DIR / sid
+    d = DATA_DIR / site.id
     profs = []; brs = []; files_used = []
 
     for m in site.meters:
@@ -746,11 +763,9 @@ def generate_report(sid):
                 brs.append(parse_billing_xls(str(bp)))
 
     if not profs and not brs:
-        flash('No data files for the selected period. Upload BR and/or PR files.', 'error')
-        return redirect(url_for('site_detail', sid=sid))
+        return None, 'No data files for the selected period.'
     if not profs:
-        flash('Profile (PR) data required for MD/PF.', 'error')
-        return redirect(url_for('site_detail', sid=sid))
+        return None, 'Profile (PR) data required for MD/PF.'
 
     energy = assemble_energy_data(brs, profs, site.is_summation, by, bm, site.tariff)
     days = calendar.monthrange(by, bm)[1]
@@ -774,6 +789,18 @@ def generate_report(sid):
         files_used_json=json.dumps(files_used),
     )
     db.session.add(report)
+    return report, None
+
+
+@app.route('/generate_report/<sid>', methods=['POST'])
+def generate_report(sid):
+    site = db.get_or_404(Site, sid)
+    by = int(request.form['billing_year'])
+    bm = int(request.form['billing_month'])
+    report, err = generate_report_for_site(site, by, bm)
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('site_detail', sid=sid))
     db.session.commit()
     flash(f'Report generated for {report.billing_month_name}.', 'success')
     return redirect(url_for('view_report', sid=sid, ri=report.id))
@@ -786,7 +813,13 @@ def view_report(sid, ri):
         flash('Not found.', 'error')
         return redirect(url_for('index'))
     site = db.get_or_404(Site, sid)
-    return render_template('report.html', site=site, report=report, report_idx=report.id)
+    history = Report.query.filter_by(site_id=sid).order_by(Report.billing_period).all()
+    trend_data = [{'period': r.billing_period, 'label': r.billing_month_name,
+                   'cost': r.bill.get('total_incl_vat', 0),
+                   'md': r.energy.get('max_demand_kva', 0),
+                   'is_current': r.id == ri} for r in history]
+    return render_template('report.html', site=site, report=report, report_idx=report.id,
+                           trend_data=trend_data)
 
 
 @app.route('/export_report/<sid>/<int:ri>')
@@ -1050,6 +1083,288 @@ def reset_all_tariffs():
     save_tariffs(TARIFFS)
     flash('All tariffs reset to defaults.', 'success')
     return redirect(url_for('tariff_editor'))
+
+
+# ---------------------------------------------------------------------------
+# Batch report generation
+# ---------------------------------------------------------------------------
+
+@app.route('/batch_generate', methods=['POST'])
+def batch_generate():
+    by = int(request.form['billing_year'])
+    bm = int(request.form['billing_month'])
+    sites = Site.query.all()
+    results = []
+    for site in sites:
+        if not site.meters:
+            results.append({'site_name': site.name, 'site_id': site.id,
+                            'success': False, 'error': 'No meters configured', 'report_id': None})
+            continue
+        report, err = generate_report_for_site(site, by, bm)
+        results.append({'site_name': site.name, 'site_id': site.id,
+                        'success': report is not None, 'error': err or '',
+                        'report_id': report.id if report else None})
+    db.session.commit()
+    pp = prev_month_period()
+    statuses = {s.id: get_period_status(s, pp) for s in sites}
+    missing_sites = [{'name': s.name, 'id': s.id, 'status': statuses[s.id]}
+                     for s in sites if statuses[s.id] in ('empty', 'partial')]
+    site_trends = {}
+    for s in sites:
+        reports = Report.query.filter_by(site_id=s.id).order_by(Report.billing_period.desc()).limit(12).all()
+        site_trends[s.id] = [{'period': r.billing_period, 'cost': r.bill.get('total_incl_vat', 0)}
+                             for r in reversed(reports)]
+    succeeded = sum(1 for r in results if r['success'])
+    flash(f'Batch generation: {succeeded} of {len(results)} reports generated.', 'success' if succeeded else 'info')
+    return render_template('index.html', sites=sites, tariffs=list(TARIFFS.keys()),
+                           prev_period=pp, site_statuses=statuses,
+                           missing_sites=missing_sites, site_trends=site_trends,
+                           batch_results=results, batch_period=f"{by}-{bm:02d}")
+
+
+# ---------------------------------------------------------------------------
+# Save report notes
+# ---------------------------------------------------------------------------
+
+@app.route('/save_notes/<sid>/<int:ri>', methods=['POST'])
+def save_notes(sid, ri):
+    report = db.get_or_404(Report, ri)
+    if report.site_id != sid:
+        flash('Not found.', 'error')
+        return redirect(url_for('index'))
+    report.notes = request.form.get('notes', '')
+    db.session.commit()
+    flash('Notes saved.', 'success')
+    return redirect(url_for('view_report', sid=sid, ri=ri))
+
+
+# ---------------------------------------------------------------------------
+# Excel export
+# ---------------------------------------------------------------------------
+
+@app.route('/export_report_xlsx/<sid>/<int:ri>')
+def export_report_xlsx(sid, ri):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    report = db.get_or_404(Report, ri)
+    if report.site_id != sid:
+        return "Not found", 404
+    site = db.get_or_404(Site, sid)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Energy Report"
+    ws.column_dimensions['A'].width = 30
+    ws.column_dimensions['B'].width = 20
+    ws.column_dimensions['C'].width = 12
+
+    hdr_font = Font(bold=True, size=14, color="F0A030")
+    section_font = Font(bold=True, size=11, color="FFFFFF")
+    section_fill = PatternFill(start_color="2A2E37", end_color="2A2E37", fill_type="solid")
+    bold = Font(bold=True)
+    currency_fmt = '#,##0.00'
+    thin_border = Border(bottom=Side(style='thin', color='CCCCCC'))
+
+    row = 1
+    ws.cell(row=row, column=1, value="Crown Energy Report").font = hdr_font
+    row += 1
+    for label, val in [('Site', site.name), ('Period', report.billing_month_name),
+                       ('Tariff', report.tariff), ('Season', (report.season or '').upper()),
+                       ('Days', report.days), ('Data Source', report.data_source or '')]:
+        ws.cell(row=row, column=1, value=label).font = bold
+        ws.cell(row=row, column=2, value=val)
+        row += 1
+
+    row += 1
+    for c in range(1, 4):
+        ws.cell(row=row, column=c).font = section_font
+        ws.cell(row=row, column=c).fill = section_fill
+    ws.cell(row=row, column=1, value="ENERGY CONSUMPTION")
+    row += 1
+
+    energy = report.energy
+    for label, key, unit in [('Peak Energy', 'peak', 'kWh'), ('Standard Energy', 'standard', 'kWh'),
+                             ('Off-Peak Energy', 'off_peak', 'kWh'), ('Total Active Energy', 'total', 'kWh'),
+                             ('Reactive Energy', 'reactive', 'kvarh'),
+                             ('Maximum Demand', 'max_demand_kva', 'kVA'),
+                             ('Power Factor', 'power_factor', '')]:
+        ws.cell(row=row, column=1, value=label)
+        cell = ws.cell(row=row, column=2, value=energy.get(key, 0))
+        cell.number_format = '#,##0.0' if key != 'power_factor' else '0.0000'
+        ws.cell(row=row, column=3, value=unit)
+        if key == 'total':
+            ws.cell(row=row, column=1).font = bold
+            ws.cell(row=row, column=2).font = bold
+        row += 1
+
+    row += 1
+    for c in range(1, 4):
+        ws.cell(row=row, column=c).font = section_font
+        ws.cell(row=row, column=c).fill = section_fill
+    ws.cell(row=row, column=1, value="BILL BREAKDOWN")
+    row += 1
+
+    bill = report.bill
+    for key, val in bill.items():
+        if key in ('subtotal_excl_vat', 'vat', 'total_incl_vat', 'total_energy'):
+            continue
+        ws.cell(row=row, column=1, value=key.replace('_', ' ').title())
+        cell = ws.cell(row=row, column=2, value=val)
+        cell.number_format = currency_fmt
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value="Total Excl. VAT").font = bold
+    c = ws.cell(row=row, column=2, value=bill.get('subtotal_excl_vat', 0))
+    c.font = bold; c.number_format = currency_fmt
+    row += 1
+    ws.cell(row=row, column=1, value="VAT (15%)")
+    ws.cell(row=row, column=2, value=bill.get('vat', 0)).number_format = currency_fmt
+    row += 1
+    total_font = Font(bold=True, size=12, color="F0A030")
+    ws.cell(row=row, column=1, value="TOTAL INCL. VAT").font = total_font
+    c = ws.cell(row=row, column=2, value=bill.get('total_incl_vat', 0))
+    c.font = total_font; c.number_format = currency_fmt
+
+    if report.notes:
+        row += 2
+        ws.cell(row=row, column=1, value="NOTES").font = section_font
+        row += 1
+        ws.cell(row=row, column=1, value=report.notes)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True,
+                     download_name=f"report_{site.name}_{report.billing_period}.xlsx")
+
+
+# ---------------------------------------------------------------------------
+# PDF export
+# ---------------------------------------------------------------------------
+
+@app.route('/export_report_pdf/<sid>/<int:ri>')
+def export_report_pdf(sid, ri):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    report = db.get_or_404(Report, ri)
+    if report.site_id != sid:
+        return "Not found", 404
+    site = db.get_or_404(Site, sid)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm,
+                            topMargin=15*mm, bottomMargin=15*mm)
+    styles = getSampleStyleSheet()
+    amber = HexColor('#C07820')
+    grey = HexColor('#555555')
+
+    title_style = ParagraphStyle('Title2', parent=styles['Title'], fontSize=18, textColor=amber)
+    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=12, textColor=grey,
+                                   spaceAfter=4, spaceBefore=12)
+    normal = styles['Normal']
+
+    elements = []
+    elements.append(Paragraph("Crown Energy Report", title_style))
+    elements.append(Paragraph(f"{site.name} — {report.billing_month_name}", normal))
+    elements.append(Spacer(1, 6*mm))
+
+    # Header info table
+    hdr_data = [
+        ['Site', site.name, 'Tariff', report.tariff],
+        ['Season', (report.season or '').upper(), 'Days', str(report.days)],
+        ['Supply', site.supply_authority, 'NMD', f"{report.nmd_kva or 0:,.0f} kVA"],
+        ['Account', site.account_number or '—', 'Util. Cap.', f"{report.utilised_capacity_kva or 0:,.1f} kVA"],
+    ]
+    ht = Table(hdr_data, colWidths=[70, 130, 70, 130])
+    ht.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('TEXTCOLOR', (0, 0), (0, -1), grey),
+        ('TEXTCOLOR', (2, 0), (2, -1), grey),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (3, 0), (3, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(ht)
+    elements.append(Spacer(1, 6*mm))
+
+    # Energy table
+    elements.append(Paragraph("Energy Consumption", heading_style))
+    energy = report.energy
+    e_data = [['Parameter', 'Value', 'Unit']]
+    for label, key, unit in [('Peak Energy', 'peak', 'kWh'), ('Standard Energy', 'standard', 'kWh'),
+                             ('Off-Peak Energy', 'off_peak', 'kWh'), ('Total Active Energy', 'total', 'kWh'),
+                             ('Reactive Energy', 'reactive', 'kvarh'), ('Maximum Demand', 'max_demand_kva', 'kVA'),
+                             ('Power Factor', 'power_factor', '')]:
+        val = energy.get(key, 0)
+        fmt = f"{val:,.1f}" if key != 'power_factor' else f"{val:.4f}"
+        e_data.append([label, fmt, unit])
+    et = Table(e_data, colWidths=[150, 100, 50])
+    et.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 0), (-1, 0), grey),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, HexColor('#CCCCCC')),
+        ('LINEBELOW', (0, -1), (-1, -1), 0.5, HexColor('#EEEEEE')),
+        ('BACKGROUND', (0, 4), (-1, 4), HexColor('#FFF8EC')),
+        ('FONTNAME', (0, 4), (-1, 4), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(et)
+    elements.append(Spacer(1, 6*mm))
+
+    # Bill table
+    elements.append(Paragraph("Bill Breakdown", heading_style))
+    bill = report.bill
+    b_data = [['Charge', 'Amount (R)']]
+    for key, val in bill.items():
+        if key in ('subtotal_excl_vat', 'vat', 'total_incl_vat', 'total_energy'):
+            continue
+        b_data.append([key.replace('_', ' ').title(), f"{val:,.2f}"])
+    b_data.append(['Total Excl. VAT', f"R {bill.get('subtotal_excl_vat', 0):,.2f}"])
+    b_data.append(['VAT (15%)', f"R {bill.get('vat', 0):,.2f}"])
+    b_data.append(['TOTAL INCL. VAT', f"R {bill.get('total_incl_vat', 0):,.2f}"])
+
+    bt = Table(b_data, colWidths=[200, 120])
+    n_rows = len(b_data)
+    bt.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 0), (-1, 0), grey),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, HexColor('#CCCCCC')),
+        ('LINEABOVE', (0, n_rows - 3), (-1, n_rows - 3), 1, HexColor('#CCCCCC')),
+        ('FONTNAME', (0, n_rows - 3), (-1, n_rows - 3), 'Helvetica-Bold'),
+        ('FONTNAME', (0, n_rows - 1), (-1, n_rows - 1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, n_rows - 1), (-1, n_rows - 1), 11),
+        ('BACKGROUND', (0, n_rows - 1), (-1, n_rows - 1), HexColor('#FFF3D6')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(bt)
+
+    if report.notes:
+        elements.append(Spacer(1, 6*mm))
+        elements.append(Paragraph("Notes", heading_style))
+        elements.append(Paragraph(report.notes, normal))
+
+    elements.append(Spacer(1, 10*mm))
+    footer_style = ParagraphStyle('Footer', parent=normal, fontSize=8, textColor=HexColor('#AAAAAA'),
+                                  alignment=1)
+    elements.append(Paragraph(f"Crown Energy Report — Generated {report.generated[:19]}", footer_style))
+
+    doc.build(elements)
+    buf.seek(0)
+    return send_file(buf, mimetype='application/pdf', as_attachment=True,
+                     download_name=f"report_{site.name}_{report.billing_period}.pdf")
 
 
 if __name__ == '__main__':

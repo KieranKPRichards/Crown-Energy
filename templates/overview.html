@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overview — Crown Energy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="logo">⚡ Crown Energy</a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/overview" class="active">Overview</a>
+                <a href="/bulk_upload">Bulk Upload</a>
+                <a href="/tariff_editor">Tariff Rates</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="page-header">
+            <h1>Data Overview</h1>
+        </div>
+
+        {% if sites %}
+        <div class="meters-table" style="overflow-x:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        {% for m in months %}
+                        <th style="text-align:center;font-size:11px;">{{ m[5:] }}<br>{{ m[:4] }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for site in sites %}
+                    <tr>
+                        <td><a href="/site/{{ site.id }}" style="color:var(--accent);text-decoration:none;font-weight:600;">{{ site.name }}</a></td>
+                        {% for m in months %}
+                        <td style="text-align:center;">
+                            <span class="badge badge-status-{{ grid[site.id][m] }}">
+                                {{ grid[site.id][m][:3] }}
+                            </span>
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top:16px;font-size:13px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap;">
+            <span><span class="badge badge-status-reported">rep</span> Report generated</span>
+            <span><span class="badge badge-status-complete">com</span> Data complete</span>
+            <span><span class="badge badge-status-partial">par</span> Partial data</span>
+            <span><span class="badge badge-status-empty">emp</span> No data</span>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <h2>No sites configured</h2>
+            <p>Add sites on the <a href="/" style="color:var(--accent);">Dashboard</a> to see the overview.</p>
+        </div>
+        {% endif %}
+    </main>
+</body>
+</html>

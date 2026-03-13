@@ -653,3 +653,26 @@ table.compact td, table.compact th { padding: 6px 12px; font-size: 0.82rem; }
 .pf-ok      { color: var(--success); font-family: var(--mono); font-size: 12px; }
 .pf-missing { color: var(--danger);  font-family: var(--mono); font-size: 12px; }
 .pf-none    { color: var(--text-dim); }
+
+/* Alert warning */
+.alert-warning { background: rgba(240,160,48,0.1); border-color: var(--standard); color: var(--standard); }
+
+/* Status badges for overview/dashboard */
+.badge-status-empty    { background: rgba(90,94,103,0.2); color: var(--text-dim); }
+.badge-status-partial  { background: rgba(240,160,48,0.15); color: var(--standard); }
+.badge-status-complete { background: rgba(48,184,120,0.15); color: var(--success); }
+.badge-status-reported { background: rgba(56,152,232,0.15); color: var(--info); }
+
+/* Sparkline container in site cards */
+.sparkline-container { position: relative; height: 40px; margin-top: 8px; pointer-events: auto; }
+
+/* Cost trend chart on report page */
+.trend-chart-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    height: 280px;
+    position: relative;
+}
+@media print { .trend-chart-container { display: none; } }
