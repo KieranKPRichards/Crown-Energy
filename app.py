@@ -93,7 +93,7 @@ DEFAULT_TARIFFS = {
     },
     "Tariff E": {
         "type": "demand", "fixed_charge": 5207.0984, "demand_charge": 146.0987, "network_access": 96.6283,
-        "energy_rates": {"low":{"peak":3.2813,"standard":2.1007,"off_peak":1.6674},"high":{"peak":3.2813,"standard":2.1007,"off_peak":1.6674}},
+        "energy_rates": {"low":{"peak":3.415,"standard":2.2314,"off_peak":1.6926},"high":{"peak":3.415,"standard":2.2314,"off_peak":1.6926}},
         "tou_periods": {
             "low": {"weekday": {"peak":[(7,10),(18,20)],"standard":[(6,7),(10,18),(20,22)],"off_peak":[(0,6),(22,24)]},
                     "saturday":{"peak":[],"standard":[(7,12),(18,20)],"off_peak":[(0,7),(12,18),(20,24)]},
@@ -346,8 +346,9 @@ def calculate_bill(energy, tn, nmd, ucap, days, bm, r12m=None):
     elif tn=='Miniflex':
         b['service_charge']=round(t['service_charge']*days,2); b['admin_charge']=round(t['admin_charge']*days,2)
         b['network_demand']=round(t['network_demand_rate']*energy['peak_std'],2)
-        b['network_capacity']=round(t['network_capacity']*nmd,2)
-        b['generation_capacity']=round(t['generation_capacity']*nmd,2)
+        cap_kva = nmd if nmd > 0 else energy['max_demand_kva']
+        b['network_capacity']=round(t['network_capacity']*cap_kva,2)
+        b['generation_capacity']=round(t['generation_capacity']*cap_kva,2)
         b['energy_peak']=round(rates['peak']*energy['peak'],2)
         b['energy_standard']=round(rates['standard']*energy['standard'],2)
         b['energy_off_peak']=round(rates['off_peak']*energy['off_peak'],2)
@@ -357,10 +358,24 @@ def calculate_bill(energy, tn, nmd, ucap, days, bm, r12m=None):
         b['electrification_rural']=round(t['electrification_rural']*tk,2)
         b['affordability_subsidy']=round(t['affordability_subsidy']*tk,2)
         b['reactive_energy']=0
+    elif tn=='Nightsave Urban':
+        b['service_charge']=round(t['service_charge']*days,2); b['admin_charge']=round(t['admin_charge']*days,2)
+        md=energy['max_demand_kva']
+        b['network_demand']=round(t['network_demand_peak_std']*md,2)
+        b['transmission_network']=round(t['transmission_peak_std']*md,2)
+        rm=max(nmd,md) if nmd>0 else md
+        b['network_access']=round(t['network_access']*rm,2)
+        if s=='low':
+            b['energy_peak']=0; b['energy_standard']=0
+            b['energy_off_peak']=round(rates['off_peak']*energy['total'],2)
+        else:
+            b['energy_peak']=round(rates['peak']*energy['peak'],2)
+            b['energy_standard']=round(rates['standard']*energy['standard'],2)
+            b['energy_off_peak']=round(rates['off_peak']*energy['off_peak'],2)
     elif t['type']=='demand':
         b['fixed_charge']=round(t['fixed_charge'],2)
         b['demand_charge']=round(t['demand_charge']*energy['max_demand_kva'],2)
-        rm=r12m if r12m else energy['max_demand_kva']
+        rm=r12m if r12m else (ucap if ucap>0 else energy['max_demand_kva'])
         b['network_access']=round(t['network_access']*rm,2)
         b['energy_peak']=round(rates['peak']*energy['peak'],2)
         b['energy_standard']=round(rates['standard']*energy['standard'],2)
