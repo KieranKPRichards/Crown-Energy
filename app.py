@@ -182,6 +182,7 @@ def parse_profile_csv(filepath):
 def parse_billing_xls(filepath):
     import openpyxl
     result = {'meter_serial':'','stack_dates':[],'energy_registers':[],'reactive_register':[],
+              'energy_unit':'MWh','md_unit':'MVA',
               'md_mva':[],'md_mva_dates':[],'md_mva_times':[],'md_mw':[],'md_mw_dates':[],'md_mw_times':[]}
     ext = Path(filepath).suffix.lower()
     if ext == '.xls':
@@ -211,7 +212,10 @@ def parse_billing_xls(filepath):
             s=str(row[0]).strip()
             if 'Meter Serial' in s: result['meter_serial']=str(row[1]).strip() if row[1] else ''
             elif 'Running & MER Date' in s: result['stack_dates']=strs(row)
-            elif 'Wh' in s and 'Acc-Tot_Imp' in s: result['energy_registers'].append(nums(row))
+            elif 'Wh' in s and 'Acc-Tot_Imp' in s:
+                if len(row)>2 and row[2] and str(row[2]).strip().lower() in ('kwh','mwh'):
+                    result['energy_unit']=str(row[2]).strip()
+                result['energy_registers'].append(nums(row))
             elif 'varh' in s.lower() and 'Acc-Exvar' in s: result['reactive_register']=nums(row)
 
     if 'Max Demand Billing' in wb.sheetnames:
@@ -220,6 +224,8 @@ def parse_billing_xls(filepath):
             if not row[0]: continue
             s=str(row[0]).strip()
             if 'VA' in s and 'Non-VABlk' in s and not found_mva:
+                if len(row)>2 and row[2] and str(row[2]).strip().lower() in ('kva','mva'):
+                    result['md_unit']=str(row[2]).strip()
                 result['md_mva']=nums(row); pending='mva_date'; found_mva=True
             elif 'W ' in s and 'Non-Blk' in s and not found_mw:
                 result['md_mw']=nums(row); pending='mw_date'; found_mw=True
@@ -236,9 +242,10 @@ def get_br_month_energy(br, stack_idx=1):
     regs=br['energy_registers']; rr=br['reactive_register']
     if len(regs)<4: return None
     s1,s2=stack_idx,stack_idx+1
+    factor = 1000 if br.get('energy_unit','MWh').lower() == 'mwh' else 1
     def d(r,i,j):
         if i<len(r) and j<len(r) and r[i] is not None and r[j] is not None:
-            return round((r[i]-r[j])*1000,1)
+            return round((r[i]-r[j])*factor,1)
         return None
     pk=d(regs[0],s1,s2); st=d(regs[1],s1,s2); op=d(regs[2],s1,s2); tot=d(regs[3],s1,s2)
     react=d([v if v is not None else 0 for v in rr],s1,s2) if rr else None
@@ -247,8 +254,9 @@ def get_br_month_energy(br, stack_idx=1):
 
 def get_br_md(br, stack_idx=1):
     r={}
+    md_factor = 1000 if br.get('md_unit','MVA').lower() == 'mva' else 1
     ml=br.get('md_mva',[])
-    if stack_idx<len(ml) and ml[stack_idx] is not None: r['md_kva']=round(ml[stack_idx]*1000,1)
+    if stack_idx<len(ml) and ml[stack_idx] is not None: r['md_kva']=round(ml[stack_idx]*md_factor,1)
     wl=br.get('md_mw',[])
     if stack_idx<len(wl) and wl[stack_idx] is not None: r['md_mw']=round(wl[stack_idx],4)
     dl=br.get('md_mva_dates',[]); tl=br.get('md_mva_times',[])
